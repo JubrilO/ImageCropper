@@ -17,11 +17,11 @@ class ProcessedImage: ObservableObject, Identifiable, Hashable {
         self.originalImage = originalImage
     }
     
-    static func == (lhs: ProcessedImage, rhs: ProcessedImage) -> Bool {
+    nonisolated static func == (lhs: ProcessedImage, rhs: ProcessedImage) -> Bool {
         lhs.id == rhs.id
     }
     
-    func hash(into hasher: inout Hasher) {
+    nonisolated func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
     

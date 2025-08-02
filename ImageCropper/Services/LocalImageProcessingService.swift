@@ -44,16 +44,13 @@ final class LocalImageProcessingService: ImageProcessingService {
         
         try Task.checkCancellation()
         
-        let processedImage = try await withCheckedThrowingContinuation { continuation in
-            concurrentQueue.async {
-                do {
-                    let croppedImage = try self.cropImage(downsampledImage, percentage: request.cropPercentage.percentage)
-                    continuation.resume(returning: croppedImage)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+        let cropPercentage = request.cropPercentage.percentage
+        let processedImage = try await Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else {
+                throw ImageProcessingError.processingFailed
             }
-        }
+            return try self.cropImage(downsampledImage, percentage: cropPercentage)
+        }.value
         
         cache?.store(processedImage, for: request.requestId, cropPercentage: request.cropPercentage.value)
         
