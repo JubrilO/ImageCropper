@@ -90,8 +90,7 @@ final class ProcessingActorTests: XCTestCase {
     func testMaxOperationsRespected() async throws {
         let maxOperations = 2
         let actor = ProcessingActor(maxOperations: maxOperations)
-        var completedOperations = 0
-        let lock = NSLock()
+        let completionCounter = CompletionCounter()
         
         try await withThrowingTaskGroup(of: Void.self) { group in
             // Start more tasks than the limit
@@ -107,10 +106,7 @@ final class ProcessingActorTests: XCTestCase {
                     try await Task.sleep(nanoseconds: 50_000_000) // 50ms
                     
                     await actor.decrementCount()
-                    
-                    lock.lock()
-                    completedOperations += 1
-                    lock.unlock()
+                    await completionCounter.increment()
                 }
             }
             
@@ -119,6 +115,21 @@ final class ProcessingActorTests: XCTestCase {
             }
         }
         
+        let completedOperations = await completionCounter.count
         XCTAssertEqual(completedOperations, 5)
+    }
+}
+
+// MARK: - Helper Actor for Thread-Safe Counting
+
+actor CompletionCounter {
+    private var _count = 0
+    
+    func increment() {
+        _count += 1
+    }
+    
+    var count: Int {
+        _count
     }
 }
