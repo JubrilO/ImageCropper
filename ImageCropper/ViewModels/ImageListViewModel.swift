@@ -9,12 +9,13 @@ class ImageListViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var error: Error?
     
-    private let imageProcessingService: ImageProcessingService
+    private let imageCache = ImageCache()
+    private lazy var imageProcessingService: ImageProcessingService = LocalImageProcessingService(cache: imageCache)
     private var cancellables = Set<AnyCancellable>()
     
-    init(imageProcessingService: ImageProcessingService = LocalImageProcessingService()) {
-        self.imageProcessingService = imageProcessingService
+    init() {
         setupCropPercentageObserver()
+        setupMemoryWarningObserver()
     }
     
     private func setupCropPercentageObserver() {
@@ -52,7 +53,9 @@ class ImageListViewModel: ObservableObject {
     private func processImage(_ processedImage: ProcessedImage) async {
         processedImage.setProcessing(true)
         
-        let task = Task {
+        let priority = processedImage.isVisible ? TaskPriority.high : TaskPriority.medium
+        
+        let task = Task(priority: priority) {
             do {
                 let request = ImageProcessingRequest(
                     image: processedImage.originalImage,
@@ -76,10 +79,38 @@ class ImageListViewModel: ObservableObject {
         processedImage.setProcessingTask(task)
     }
     
+    func markImageVisible(_ processedImage: ProcessedImage) {
+        processedImage.isVisible = true
+        
+        if processedImage.croppedImage == nil && !processedImage.isProcessing && processedImage.error == nil {
+            Task {
+                await processImage(processedImage)
+            }
+        }
+    }
+    
+    func markImageInvisible(_ processedImage: ProcessedImage) {
+        processedImage.isVisible = false
+    }
+    
     private func reprocessAllImages(with newPercentage: CropPercentage) {
+        imageCache.removeAllImages()
+        
+        let visibleImages = processedImages.filter { $0.isVisible }
+        let invisibleImages = processedImages.filter { !$0.isVisible }
+        
         for image in processedImages {
             image.cancelProcessing()
-            Task {
+        }
+        
+        for image in visibleImages {
+            Task(priority: .high) {
+                await processImage(image)
+            }
+        }
+        
+        for image in invisibleImages {
+            Task(priority: .medium) {
                 await processImage(image)
             }
         }
@@ -88,5 +119,21 @@ class ImageListViewModel: ObservableObject {
     func removeImage(_ processedImage: ProcessedImage) {
         processedImage.cancelProcessing()
         processedImages.removeAll { $0.id == processedImage.id }
+    }
+    
+    private func setupMemoryWarningObserver() {
+        NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)
+            .sink { [weak self] _ in
+                self?.handleMemoryWarning()
+            }
+            .store(in: &cancellables)
+    }
+    
+    private func handleMemoryWarning() {
+        imageCache.removeAllImages()
+        
+        for image in processedImages where !image.isProcessing {
+            image.cancelProcessing()
+        }
     }
 }

@@ -64,6 +64,12 @@ struct ImageListView: View {
                         insertion: .scale.combined(with: .opacity),
                         removal: .scale.combined(with: .opacity)
                     ))
+                    .onAppear {
+                        viewModel.markImageVisible(processedImage)
+                    }
+                    .onDisappear {
+                        viewModel.markImageInvisible(processedImage)
+                    }
                 }
             }
             .padding(.vertical)
