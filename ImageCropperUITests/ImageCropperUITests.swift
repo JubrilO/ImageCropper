@@ -2,8 +2,6 @@
 //  ImageCropperUITests.swift
 //  ImageCropperUITests
 //
-//  Created by Jubril Olambiwonnu on 02/08/2025.
-//
 
 import XCTest
 
