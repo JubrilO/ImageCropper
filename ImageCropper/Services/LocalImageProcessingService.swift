@@ -1,24 +1,63 @@
 import UIKit
 import CoreGraphics
 
-actor LocalImageProcessingService: ImageProcessingService {
+final class LocalImageProcessingService: ImageProcessingService {
     private let processingQueue = DispatchQueue(label: "com.imagecropper.processing", qos: .userInitiated)
+    private let concurrentQueue = DispatchQueue(label: "com.imagecropper.concurrent", qos: .userInitiated, attributes: .concurrent)
+    
+    private let processingActor = ProcessingActor()
+    private let cache: ImageCaching?
+    
+    init(cache: ImageCaching? = nil) {
+        self.cache = cache
+    }
     
     func processImage(_ request: ImageProcessingRequest) async throws -> UIImage {
-        try await Task.sleep(nanoseconds: 500_000_000)
+        if let cached = cache?.image(for: request.requestId, cropPercentage: request.cropPercentage.value) {
+            return cached
+        }
+        try await processingActor.checkConcurrencyLimit()
+        
+        return try await withTaskCancellationHandler {
+            try await performProcessing(request)
+        } onCancel: {
+            Task {
+                await processingActor.decrementCount()
+            }
+        }
+    }
+    
+    private func performProcessing(_ request: ImageProcessingRequest) async throws -> UIImage {
+        defer {
+            Task {
+                await processingActor.decrementCount()
+            }
+        }
+        
+        //try await Task.sleep(nanoseconds: 200_000_000)
         
         try Task.checkCancellation()
         
-        return try await withCheckedThrowingContinuation { continuation in
-            processingQueue.async {
+        let downsampledImage = await Task.detached(priority: .userInitiated) {
+            ImageDownsampler.downsample(request.image)
+        }.value
+        
+        try Task.checkCancellation()
+        
+        let processedImage = try await withCheckedThrowingContinuation { continuation in
+            concurrentQueue.async {
                 do {
-                    let croppedImage = try self.cropImage(request.image, percentage: request.cropPercentage.percentage)
+                    let croppedImage = try self.cropImage(downsampledImage, percentage: request.cropPercentage.percentage)
                     continuation.resume(returning: croppedImage)
                 } catch {
                     continuation.resume(throwing: error)
                 }
             }
         }
+        
+        cache?.store(processedImage, for: request.requestId, cropPercentage: request.cropPercentage.value)
+        
+        return processedImage
     }
     
     private func cropImage(_ image: UIImage, percentage: Double) throws -> UIImage {
