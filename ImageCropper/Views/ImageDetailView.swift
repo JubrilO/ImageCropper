@@ -62,6 +62,10 @@ struct ZoomableImageView: View {
                 .scaledToFit()
                 .scaleEffect(scale)
                 .offset(offset)
+                .frame(
+                    width: geometry.size.width,
+                    height: geometry.size.height
+                )
                 .gesture(
                     SimultaneousGesture(
                         magnificationGesture,
